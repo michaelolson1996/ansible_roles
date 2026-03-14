@@ -1,2 +1,4 @@
 ---
 # tasks file for lfs
+
+- import_tasks: 00_prereqs.yml

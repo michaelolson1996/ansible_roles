@@ -1,0 +1,154 @@
+---
+
+- name: ensure required repos are present
+  ansible.builtin.yum_repository:
+    name: crb
+    description: crb repo
+    baseurl: https://dl.rockylinux.org/pub/rocky/$releasever/CRB/$basearch/os
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://dl.rockylinux.org/pub/rocky/10/CRB/x86_64/os/RPM-GPG-KEY-Rocky-10
+    state: present
+
+- name: ensure required software is installed
+  ansible.builtin.dnf:
+    name:
+      - bash
+      - binutils
+      - bison
+      - coreutils
+      - diffutils
+      - findutils
+      - gawk
+      - gcc
+      - grep
+      - gzip
+      - kernel-headers
+      - kernel-devel
+      - m4
+      - make
+      - patch
+      - perl
+      - python
+      - sed
+      - tar
+      - texinfo
+      - xz
+
+- name: ensure symlinks exist for required software
+  ansible.builtin.file:
+    src: /usr/bin/gawk
+    dest: /usr/bin/awk
+    owner: root
+    group: root
+    state: link
+
+- name: ensure symlinks exist for required software
+  ansible.builtin.file:
+    src: /usr/bin/bash
+    dest: /usr/bin/sh
+    owner: root
+    group: root
+    state: link
+
+- name: ensure symlinks exist for required software
+  ansible.builtin.file:
+    src: /usr/bin/bison
+    dest: /usr/bin/yacc
+    owner: root
+    group: root
+    state: link
+
+- name: perform version compatability check on software
+  ansible.builtin.script: version-check.sh
+  register: output
+
+- name: ensure system software passes all required tests
+  ansible.builtin.debug:
+    var: output.stdout_lines
+  failed_when: "'ERROR' in output.stdout"
+
+- name: ensure lfs group exists
+  ansible.builtin.group:
+    name: lfs
+    state: present
+
+- name: ensure lfs user exists
+  ansible.builtin.user:
+    name: lfs
+    comment: Linux from Scratch User
+    shell: /bin/bash
+    groups: lfs,wheel
+    create_home: yes
+
+- name: ensure lfs swap exists
+  community.general.filesystem:
+    fstype: swap
+    dev: /dev/vdb1
+    state: present
+
+- name: ensure lfs build exists
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/vdb2
+    state: present
+
+#- name: ensure lfs swap is mounted
+#  ansible.posix.mount:
+#    name: none
+#    src: LABEL=SWAP
+#    fstype: swap
+#    opts: sw,comment=cloudconfig
+#    state: mounted
+
+- name: ensure lfs build disk is mounted
+  ansible.posix.mount:
+    path: /mnt/lfs
+    src: LABEL=LFS
+    fstype: ext4
+    opts: defaults,noatime
+    passno: 2
+    state: mounted
+
+- name: ensure proper file permissions are set for lfs build
+  ansible.builtin.file:
+    path: /mnt/lfs
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: ensure sources dir exists, all write access and sticky bit
+  ansible.builtin.file:
+    path: /mnt/lfs/sources
+    state: directory
+    owner: root
+    group: root
+    mode: a+wt
+
+- name: fetch list of packages and patches from lfs website
+  ansible.builtin.get_url:
+    url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/wget-list-systemd
+    dest: /tmp/lfs-packages.txt
+    mode: '0644'
+
+- name: fetch list of packages and patches from lfs website
+  ansible.builtin.get_url:
+    url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/md5sums
+    dest: /tmp/lfs-packages.md5
+    mode: '0644'
+
+- name: iterate over lfs-packages and fetch each package
+  ansible.builtin.get_url:
+    url: "{{ package_url }}"
+    dest: "/mnt/lfs/sources/{{ package_url | urlsplit('path') | basename }}"
+    #validate_certs: true
+  loop: "{{ lookup('file', '/tmp/lfs-packages.txt').splitlines() }}"
+  register: fetch_results
+  loop_control:
+    label: "{{ package_url }}"
+
+- name: check this
+  ansible.builtin.debug:
+    var: fetch_results
+
