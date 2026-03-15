@@ -1,0 +1,27 @@
+---
+
+- name: get url
+  ansible.builtin.get_url:
+    url: "{{ package_url }}"
+    dest: "/mnt/lfs/sources/{{ package_url | urlsplit('path') | basename }}"
+    checksum: "md5:{{ lfs_checksum_map[package_url | urlsplit('path') | basename] }}"
+    timeout: 3600
+    use_proxy: false
+  loop: "{{ package_batch }}"
+  loop_control:
+    loop_var: package_url
+    label: "{{ package_url | basename }}"
+  async: 3600
+  poll: 0
+  register: download_jobs
+
+- name: job status
+  ansible.builtin.async_status:
+    jid: "{{ job_result.ansible_job_id }}"
+  register: job_status
+  until: job_status.finished
+  retries: 120
+  delay: 30
+  loop: "{{ download_jobs.results }}"
+  loop_control:
+    loop_var: job_result

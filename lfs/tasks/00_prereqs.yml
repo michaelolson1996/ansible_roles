@@ -124,31 +124,72 @@
     state: directory
     owner: root
     group: root
-    mode: a+wt
+    mode: '1777'
 
-- name: fetch list of packages and patches from lfs website
+- name: fetch list of packages from lfs website
   ansible.builtin.get_url:
     url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/wget-list-systemd
     dest: /tmp/lfs-packages.txt
     mode: '0644'
 
-- name: fetch list of packages and patches from lfs website
+- name: fetch list of package checksums from lfs website
   ansible.builtin.get_url:
     url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/md5sums
     dest: /tmp/lfs-packages.md5
     mode: '0644'
 
-- name: iterate over lfs-packages and fetch each package
-  ansible.builtin.get_url:
-    url: "{{ package_url }}"
-    dest: "/mnt/lfs/sources/{{ package_url | urlsplit('path') | basename }}"
-    #validate_certs: true
-  loop: "{{ lookup('file', '/tmp/lfs-packages.txt').splitlines() }}"
-  register: fetch_results
+- name: gather package urls b64encoded
+  ansible.builtin.slurp:
+    src: /tmp/lfs-packages.txt
+  register: packages_b64
+
+- name: gather package checksums b64encoded
+  ansible.builtin.slurp:
+    src: /tmp/lfs-packages.md5
+  register: checksums_b64
+
+- name: decode and clean lfs package urls
+  ansible.builtin.set_fact:
+    lfs_packages: "{{ packages_b64.content | b64decode | split | select('match', '^http') | list }}"
+    lfs_checksums: "{{ checksums_b64.content | b64decode | trim | split('\n') | list }}"
+
+- name: build lfs package checksum map
+  ansible.builtin.set_fact:
+    lfs_checksum_map: "{{ lfs_checksum_map | default({}) | combine({ entry.split()[1]: entry.split()[0] }) }}"
+  loop: "{{ lfs_checksums }}"
   loop_control:
-    label: "{{ package_url }}"
+    loop_var: entry
 
-- name: check this
-  ansible.builtin.debug:
-    var: fetch_results
+- name: ensure lfs packages and patches are installed in asychronous batches
+  ansible.builtin.include_tasks: download_batch.yml
+  loop: "{{ lfs_packages | batch(3) | list }}"
+  loop_control:
+    loop_var: package_batch
 
+
+#6️⃣ The feature you asked about: pre-build verification
+#
+#Before starting the LFS toolchain build, you can ensure all packages exist and checksums match. This prevents failed builds hours later.
+#
+#Conceptually:
+#
+#download packages
+#verify checksums
+#fail immediately if any mismatch
+#
+#Native Ansible example:
+#
+#- name: verify downloaded packages
+#  ansible.builtin.stat:
+#    path: "/mnt/lfs/sources/{{ item.split()[1] }}"
+#    checksum_algorithm: md5
+#  register: verify_results
+#  loop: "{{ lfs_checksums }}"
+#
+#Then assert:
+#
+#- name: ensure package integrity
+#  ansible.builtin.assert:
+#    that:
+#      - item.stat.checksum == item.item.split()[0]
+#  loop: "{{ verify_results.results }}"
