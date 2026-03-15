@@ -4,7 +4,7 @@
   ansible.builtin.get_url:
     url: "{{ package_url }}"
     dest: "/mnt/lfs/sources/{{ package_url | urlsplit('path') | basename }}"
-    checksum: "md5:{{ lfs_checksum_map[package_url | urlsplit('path') | basename] }}"
+    checksum: "md5:{{ checksum_map[package_url | urlsplit('path') | basename] }}"
     timeout: 3600
     use_proxy: false
   loop: "{{ package_batch }}"
