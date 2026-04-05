@@ -1,0 +1,38 @@
+---
+
+lfs_host_repos: []
+
+lfs_host_packages:
+  - bash
+  - binutils
+  - bison
+  - coreutils
+  - diffutils
+  - findutils
+  - gawk
+  - gcc
+  - grep
+  - gzip
+  - kernel-headers
+  - kernel-devel
+  - m4
+  - make
+  - patch
+  - perl
+  - python
+  - sed
+  - tar
+  - texinfo
+  - xz
+
+lfs_host_symlinks:
+  - src: /usr/bin/gawk
+    dest: /usr/bin/awk
+  - src: /usr/bin/bash
+    dest: /usr/bin/sh
+  - src: /usr/bin/bison
+    dest: /usr/bin/yacc
+
+lfs_root_path: "/mnt/linux-from-scratch"
+
+lfs_makeflags: "-j2"

@@ -1,0 +1,51 @@
+---
+
+- name: get binutils file location
+  ansible.builtin.find:
+    paths: "{{ lfs_root_path }}/sources"
+    patterns: "binutils*"
+  register: binutils_file
+
+- name: verify length of binutils list is equal to one
+  ansible.builtin.fail:
+    msg: "expected exactly one binutils, found {{ lfs_disk_bootstrap.matched }}"
+  when: (binutils_file.files | length) != 1
+
+- name: ensure binutils target and build folders exist
+  ansible.builtin.file:
+    path: "{{ dir }}"
+    state: directory
+    owner: lfs
+    group: lfs
+    mode: "0755"
+  loop:
+    - "{{ lfs_root_path }}/sources/binutils"
+    - "{{ lfs_root_path }}/sources/binutils/build"
+  loop_control:
+    loop_var: dir
+
+- name: ensure binutils is extracted
+  ansible.builtin.unarchive:
+    src: "{{ binutils_file.files[0].path }}"
+    dest: "{{ lfs_root_path }}/sources/binutils"
+    extra_opts: ['--strip-components=1']
+    remote_src: yes
+
+- name: run the binutils configure command from the build dir
+  ansible.builtin.shell: |
+    source $HOME/.bashrc &&              \
+    ../configure --prefix=$LFS/tools     \
+      --with-sysroot=$LFS                \
+      --target=$LFS_TGT                  \
+      --disable-nls                      \
+      --enable-gprofng=no                \
+      --disable-werror                   \
+      --enable-new-dtags                 \
+      --enable-default-hash-style=gnu && \
+    make &&                              \
+    make install
+  become_method: sudo
+  become_user: lfs
+  become_flags: "-E"
+  args:
+    chdir: "{{ lfs_root_path }}/sources/binutils/build"

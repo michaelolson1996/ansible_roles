@@ -1,0 +1,52 @@
+---
+
+- name: ensure sources dir exists, all write access and sticky bit
+  ansible.builtin.file:
+    path: "{{ lfs_root_path }}/sources"
+    state: directory
+    owner: lfs
+    group: root
+    mode: '1777'
+
+- name: ensure directory layout is created
+  ansible.builtin.file:
+    path: "{{ dir }}"
+    state: directory
+    owner: lfs
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ lfs_root_path }}/etc"
+    - "{{ lfs_root_path }}/var"
+    - "{{ lfs_root_path }}/usr"
+    - "{{ lfs_root_path }}/usr/bin"
+    - "{{ lfs_root_path }}/usr/lib"
+    - "{{ lfs_root_path }}/usr/sbin"
+    - "{{ lfs_root_path }}/tools"
+  loop_control:
+    loop_var: dir
+    label: "dir: {{ dir }}"
+  
+- name: ensure link layout is created
+  ansible.builtin.file:
+    src: "{{ lfs_root_path }}/usr/{{ link }}"
+    dest: "{{ lfs_root_path }}/{{ link }}"
+    state: link
+    owner: lfs
+    group: root
+  loop:
+    - "bin"
+    - "lib"
+    - "sbin"
+  loop_control:
+    loop_var: link
+    label: "link: {{ lfs_root_path }}/{{ link }} -> {{ lfs_root_path }}/usr/{{ link }}"
+
+- name: ensure lib64 dir exists if target is an x86_64 machine
+  ansible.builtin.file:
+    path: "{{ lfs_root_path }}/lib64"
+    state: directory
+    owner: lfs
+    group: root
+    mode: '0755'
+  when: "'x86_64' in ansible_facts.architecture"

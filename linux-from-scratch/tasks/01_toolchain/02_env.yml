@@ -1,0 +1,17 @@
+---
+
+- name: ensure lfs user .bash_profile exists
+  ansible.builtin.copy:
+    src: bash_profile
+    dest: /home/lfs/.bash_profile
+    owner: lfs
+    group: lfs
+    mode: '0644'
+
+- name: ensure lfs user .bashrc exists
+  ansible.builtin.template:
+    src: bashrc
+    dest: /home/lfs/.bashrc
+    owner: lfs
+    group: lfs
+    mode: '0644'

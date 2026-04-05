@@ -1,0 +1,9 @@
+---
+
+- name: ensure Linux from Scratch environment variable export file exists
+  ansible.builtin.template:
+    src: templates/linux-from-scratch.sh
+    dest: /etc/profile.d/linux-from-scratch.sh
+    owner: root
+    group: root
+    mode: '0644'

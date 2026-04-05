@@ -1,0 +1,44 @@
+---
+
+- name: get linux kernel file location
+  ansible.builtin.find:
+    paths: "{{ lfs_root_path }}/sources"
+    patterns: "linux-*"
+  register: linux_file
+
+- name: verify linux kernel file exists
+  ansible.builtin.fail:
+    msg: "expected exactly one linux, found {{ linux_file.matched }}"
+  when: linux_file.matched != 1
+
+- name: ensure linux kernel target folder exists
+  ansible.builtin.file:
+    path: "{{ lfs_root_path }}/sources/linux"
+    state: directory
+    owner: lfs
+    group: lfs
+    mode: "0755"
+
+- name: ensure linux kernel is extracted
+  ansible.builtin.unarchive:
+    src: "{{ linux_file.files[0].path }}"
+    dest: "{{ lfs_root_path }}/sources/linux"
+    owner: lfs
+    group: lfs
+    mode: "0755"
+    extra_opts: ['--strip-components=1']
+    remote_src: yes
+
+- name: gather header files
+  ansible.builtin.shell: |
+    source $HOME/.bashrc &&                           \
+    make mrproper &&                                  \
+    make headers &&                                   \
+    find usr/include -type f ! -name '*.h' -delete && \
+    cp -rv usr/include $LFS/usr &&                    \
+    touch .built
+  become_user: lfs
+  become_flags: "-E"
+  args:
+    chdir: "{{ lfs_root_path }}/sources/linux"
+    creates: ".built"

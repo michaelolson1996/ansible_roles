@@ -1,0 +1,105 @@
+---
+
+#- name: get glibc file location
+#  ansible.builtin.find:
+#    paths: "{{ lfs_root_path }}/sources"
+#    patterns: '^glibc-(?!.*patch).*'
+#    use_regex: true
+#  register: glibc_file
+#
+#- name: verify glibc file exists
+#  ansible.builtin.fail:
+#    msg: "expected exactly one glibc, found {{ glibc_file.matched }}"
+#  when: glibc_file.matched != 1
+#
+#- name: ensure glibc target and build folders exist
+#  ansible.builtin.file:
+#    path: "{{ dir }}"
+#    state: directory
+#    owner: lfs
+#    group: lfs
+#    mode: "0755"
+#  loop:
+#    - "{{ lfs_root_path }}/sources/glibc"
+#    - "{{ lfs_root_path }}/sources/glibc/build"
+#  loop_control:
+#    loop_var: dir
+#
+#- name: ensure glibc is extracted
+#  ansible.builtin.unarchive:
+#    src: "{{ glibc_file.files[0].path }}"
+#    dest: "{{ lfs_root_path }}/sources/glibc"
+#    owner: lfs
+#    group: lfs
+#    mode: "0755"
+#    extra_opts: ['--strip-components=1']
+#    remote_src: yes
+#
+#- name: Create dynamic loader symlinks (x86_64)
+#  ansible.builtin.file:
+#    src: "../lib/ld-linux-x86-64.so.2"
+#    dest: "{{ lfs_root_path }}/lib64/{{ link }}"
+#    state: link
+#    force: true
+#    follow: false
+#  loop:
+#    - ld-linux-x86-64.so.2
+#    - ld-lsb-x86-64.so.3
+#  loop_control:
+#    loop_var: link
+#  when: ansible_facts.architecture == "x86_64"
+#
+#- name: Create LSB compatibility symlink (i?86)
+#  ansible.builtin.file:
+#    src: "ld-linux.so.2"
+#    dest: "{{ lfs_root_path }}/lib/ld-lsb.so.3"
+#    state: link
+#    force: true
+#    follow: false
+#  when: ansible_facts.architecture is match("^i.86$")
+#
+#- name: ensure glibc patch file is applied
+#  ansible.posix.patch:
+#    src: "{{ lfs_root_path }}/sources/glibc-fhs-1.patch"
+#    basedir: "{{ lfs_root_path }}/sources/glibc"
+#    strip: 1
+#    remote_src: true
+#
+#- name: ensure that the ldconfig and sln utilities are installed into /usr/sbin
+#  ansible.builtin.lineinfile:
+#    path: "{{ lfs_root_path }}/sources/glibc/build/configparms"
+#    line: "rootsbindir=/usr/sbin"
+#    create: true
+#    owner: lfs
+#    group: lfs
+#    mode: '0644'
+#
+#- name: glibc build
+#  ansible.builtin.shell: |
+#    source $HOME/.bashrc &&                \
+#    ../configure                           \
+#      --prefix=/usr                        \
+#      --host=$LFS_TGT                      \
+#      --build=$(../scripts/config.guess)   \
+#      --disable-nscd                       \
+#      libc_cv_slibdir=/usr/lib             \
+#      --enable-kernel=5.4 &&               \
+#      make && make DESTDIR=$LFS install && \
+#      touch .built
+#  become_user: lfs
+#  become_flags: "-E"
+#  args:
+#    chdir: "{{ lfs_root_path }}/sources/glibc/build"
+#      #creates: ".built"
+
+- name: ensure hard coded path to the executable loader in the ldd script is fixed
+  ansible.builtin.replace:
+    path: "{{ lfs_root_path }}/usr/bin/ldd"
+    regexp: '(^RTLDLIST=.*)/usr'
+    replace: '\1'
+  register: result
+  until: not result.changed
+
+
+
+
