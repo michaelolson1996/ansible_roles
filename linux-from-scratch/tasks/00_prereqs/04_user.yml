@@ -1,0 +1,14 @@
+---
+
+- name: ensure lfs group exists
+  ansible.builtin.group:
+    name: lfs
+    state: present
+
+- name: ensure lfs user exists
+  ansible.builtin.user:
+    name: lfs
+    shell: /bin/bash
+    groups: lfs
+    create_home: yes
+    skeleton: /dev/null

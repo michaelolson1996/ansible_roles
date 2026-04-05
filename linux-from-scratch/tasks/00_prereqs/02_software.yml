@@ -1,0 +1,39 @@
+---
+
+- name: ensure required repos are present
+  ansible.builtin.yum_repository:
+    name: crb
+    description: crb repo
+    baseurl: https://dl.rockylinux.org/pub/rocky/$releasever/CRB/$basearch/os
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://dl.rockylinux.org/pub/rocky/$releasever/CRB/$basearch/os/RPM-GPG-KEY-Rocky-$releasever
+    state: present
+
+- name: ensure required software packages are installed
+  ansible.builtin.dnf:
+    name: "{{ package }}"
+  loop: "{{ lfs_host_packages }}"
+  loop_control:
+    loop_var: package
+    label: "package: {{ package }}"
+
+- name: ensure symlinks exist for required software
+  ansible.builtin.file:
+    src: "{{ symlink.src }}"
+    dest: "{{ symlink.dest }}"
+    owner: root
+    group: root
+    state: link
+  loop: "{{ lfs_host_symlinks }}"
+  loop_control:
+    loop_var: symlink
+
+- name: perform version compatability check on software
+  ansible.builtin.script: version-check.sh
+  register: output
+
+- name: ensure system software passes all required tests
+  ansible.builtin.debug:
+    var: output.stdout_lines
+  failed_when: "'ERROR' in output.stdout"

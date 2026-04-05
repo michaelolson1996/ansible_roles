@@ -1,0 +1,44 @@
+---
+
+- name: fetch list of packages from lfs website
+  ansible.builtin.get_url:
+    url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/wget-list-systemd
+    dest: /tmp/lfs-packages.txt
+    mode: '0644'
+
+- name: fetch list of package checksums from lfs website
+  ansible.builtin.get_url:
+    url: https://www.linuxfromscratch.org/lfs/view/stable-systemd/md5sums
+    dest: /tmp/lfs-packages.md5
+    mode: '0644'
+
+- name: gather package urls b64encoded
+  ansible.builtin.slurp:
+    src: /tmp/lfs-packages.txt
+  register: packages_b64
+
+- name: gather package checksums b64encoded
+  ansible.builtin.slurp:
+    src: /tmp/lfs-packages.md5
+  register: checksums_b64
+
+- name: decode and clean lfs package urls
+  ansible.builtin.set_fact:
+    lfs_packages: "{{ packages_b64.content | b64decode | split | select('match', '^http') | list }}"
+    lfs_checksums: "{{ checksums_b64.content | b64decode | trim | split('\n') }}"
+
+- name: build lfs package checksum map
+  ansible.builtin.set_fact:
+    checksum_map: "{{ dict(lfs_checksums | map('split') | map('reverse') | list) }}"
+
+- name: ensure lfs packages are installed and match expected checksums
+  ansible.builtin.get_url:
+    url: "{{ package_url }}"
+    dest: "{{ lfs_root_path }}/sources/{{ package_url | urlsplit('path') | basename }}"
+    checksum: "md5:{{ checksum_map[package_url | urlsplit('path') | basename] }}"
+    owner: lfs
+    timeout: 3600
+  loop: "{{ lfs_packages }}"
+  loop_control:
+    loop_var: package_url
+    label: "package: {{ package_url | basename }}"

@@ -1,0 +1,129 @@
+---
+
+- name: get gcc file location
+  ansible.builtin.find:
+    paths: "{{ lfs_root_path }}/sources"
+    patterns: "gcc-*"
+  register: gcc_file
+
+- name: verify gcc file exists
+  ansible.builtin.fail:
+    msg: "expected exactly one gcc, found {{ lfs_disk_bootstrap.matched }}"
+  when: (gcc_file.files | length) != 1
+
+- name: ensure gcc target and build folders exist
+  ansible.builtin.file:
+    path: "{{ dir }}"
+    state: directory
+    owner: lfs
+    group: lfs
+    mode: "0755"
+  loop:
+    - "{{ lfs_root_path }}/sources/gcc"
+    - "{{ lfs_root_path }}/sources/gcc/build"
+  loop_control:
+    loop_var: dir
+
+- name: ensure gcc is extracted
+  ansible.builtin.unarchive:
+    src: "{{ gcc_file.files[0].path }}"
+    dest: "{{ lfs_root_path }}/sources/gcc"
+    owner: lfs
+    group: lfs
+    mode: "0755"
+    extra_opts: ['--strip-components=1']
+    remote_src: yes
+
+- name: ensure gcc required software folders exist
+  ansible.builtin.file:
+    path: "{{ dir }}"
+    state: directory
+    owner: lfs
+    group: lfs
+    mode: "0755"
+  loop:
+    - "{{ lfs_root_path }}/sources/gcc/gmp"
+    - "{{ lfs_root_path }}/sources/gcc/mpc"
+    - "{{ lfs_root_path }}/sources/gcc/mpfr"
+  loop_control:
+    loop_var: dir
+
+- name: get gcc required file locations
+  ansible.builtin.find:
+    paths: "{{ lfs_root_path }}/sources"
+    patterns: 
+      - "gmp-*"
+      - "mpc-*"
+      - "mpfr-*"
+  register: gcc_required_file_paths
+
+  # TODO: Figure out how to determine required software for builds, update msg
+- name: verify length of gcc list is equal to three
+  ansible.builtin.fail:
+    msg: "TODO: NEED GOOD MESSAGE"
+  when: gcc_required_file_paths.matched != 3
+
+- name: ensure gcc required files are extracted
+  ansible.builtin.unarchive:
+    src: "{{ file.path }}"
+    dest: "{{ lfs_root_path }}/sources/gcc/{{ file.path | basename | split('-') | first }}"
+    owner: lfs
+    group: lfs
+    mode: "0755"
+    extra_opts: ['--strip-components=1']
+    remote_src: yes
+  loop: "{{ gcc_required_file_paths.files }}"
+  loop_control:
+    loop_var: file
+
+- name: modify file
+  ansible.builtin.replace:
+    path: "{{ lfs_root_path }}/sources/gcc/gcc/config/i386/t-linux64"
+    regexp: '(.*m64=.*)lib64(.*)'
+    replace: '\1lib\2'
+    backup: yes
+  when: "'x86_64' in ansible_facts.architecture"
+
+- name: run the gcc configure command from the build dir
+  ansible.builtin.shell: |
+    source $HOME/.bashrc &&       \
+    ../configure                  \
+      --target=$LFS_TGT           \
+      --prefix=$LFS/tools         \
+      --with-glibc-version=2.43   \
+      --with-sysroot=$LFS         \
+      --with-newlib               \
+      --without-headers           \
+      --enable-default-pie        \
+      --enable-default-ssp        \
+      --disable-nls               \
+      --disable-shared            \
+      --disable-multilib          \
+      --disable-threads           \
+      --disable-libatomic         \
+      --disable-libgomp           \
+      --disable-libquadmath       \
+      --disable-libssp            \
+      --disable-libvtv            \
+      --disable-libstdcxx         \
+      --enable-languages=c,c++ && \
+      make && make install &&     \
+      touch .built
+  become_method: sudo
+  become_user: lfs
+  become_flags: "-E"
+  args:
+    chdir: "{{ lfs_root_path }}/sources/gcc/build"
+    creates: ".built"
+
+- name: gather header files
+  ansible.builtin.shell: |
+    source $HOME/.bashrc &&                                                 \
+    cat gcc/limitx.h gcc/glimits.h gcc/limity.h >                           \
+      `dirname $($LFS_TGT-gcc -print-libgcc-file-name)`/include/limits.h && \
+    touch .built
+  become_user: lfs
+  become_flags: "-E"
+  args:
+    chdir: "{{ lfs_root_path }}/sources/gcc"
+    creates: ".built"

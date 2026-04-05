@@ -1,0 +1,15 @@
+---
+# tasks file for lfs
+
+#- import_tasks: 00_prereqs/01_filesystems.yml
+#- import_tasks: 00_prereqs/02_software.yml
+#- import_tasks: 00_prereqs/03_environment.yml
+#- import_tasks: 00_prereqs/04_user.yml
+#
+#- import_tasks: 01_toolchain/01_layout.yml
+#- import_tasks: 01_toolchain/02_env.yml
+#- import_tasks: 01_toolchain/03_install.yml
+#- import_tasks: 01_toolchain/04_binutils.yml
+#- import_tasks: 01_toolchain/05_gcc.yml
+#- import_tasks: 01_toolchain/06_apiheaders.yml
+- import_tasks: 01_toolchain/07_glibc.yml
