@@ -1,0 +1,402 @@
+#!/bin/python
+
+import libvirt
+import requests
+import json
+from datetime import datetime
+
+HYPERVISOR_HOSTNAMES = {{ groups['site_hypervisors'][0].split(" ") }}
+
+site_name = "{{ site_status_name }}"
+site_hvs_page_id = "{{ site_status_hvs_page_id }}"
+site_vms_page_id = "{{ site_status_vms_page_id }}"
+confluence_api_url = "{{ confluence_api_url }}"
+confluence_authorization_token = "{{ confluence_authorization_token }}"
+
+site_hvs_api_url = f"{confluence_api_url}/{site_hvs_page_id}"
+site_vms_api_url = f"{confluence_api_url}/{site_vms_page_id}"
+hvs_page_version = f"{site_hvs_api_url}/?expand=version"
+vms_page_version = f"{site_vms_api_url}/?expand=version"
+
+headers = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36", 
+  "Authorization": confluence_authorization_token
+}
+
+def fetch_hvs_url():
+    page_data = requests.get(hvs_page_version, headers=headers)
+    page_data_obj = json.loads(page_data.text)
+    page_link = f"{page_data_obj['_links']['base']}{page_data_obj['_links']['webui']}/{page_data_obj['title']}"
+    print(page_link)
+    return page_link
+
+hvs_link_url = fetch_hvs_url()
+
+hypervisors_data = []
+
+domain_states = ("NOSTATE",
+                 "RUNNING",
+                 "BLOCKED",
+                 "PAUSED",
+                 "SHUTDOWN",
+                 "SHUTOFF",
+                 "CRASHED",
+                 "PMSUSPENDED",
+                 "LAST")
+pool_states   = ("INACTIVE",
+                 "BUILDING",
+                 "RUNNING",
+                 "DEGRADED",
+                 "INACCESSIBLE",
+                 "LAST")
+
+class Hypervisor:
+  def __init__(self, name, pools, domains, nics):
+    self.name    = name
+    self.pools   = pools
+    self.domains = domains
+    self.nics    = nics
+
+class Pool:
+  def __init__(self, is_persistent, is_active, volumes,
+               availability, num_of_volumes, state,
+               capacity, name, uuid, allocation):
+    self.name           = name
+    self.uuid           = uuid
+    self.is_active      = is_active
+    self.is_persistent  = is_persistent
+    self.state          = state
+    self.capacity       = capacity
+    self.allocation     = allocation
+    self.availability   = availability
+    self.num_of_volumes = num_of_volumes
+    self.volumes        = volumes
+
+class Volume:
+  def __init__(self, capacity, key, vol_type,
+               allocation, name, path):
+    self.name       = name
+    self.key        = key
+    self.path       = path
+    self.vol_type   = vol_type
+    self.capacity   = capacity
+    self.allocation = allocation
+
+class Domain:
+  def __init__(self, name, domain_id, uuid, is_active,
+               is_persistent, state, max_mem, vcpus,
+                snapshots, snapshots_num):
+    self.name          = name
+    self.domain_id     = domain_id
+    self.uuid          = uuid
+    self.is_active     = is_active
+    self.is_persistent = is_persistent
+    self.state         = state
+    self.max_mem       = max_mem
+    self.vcpus         = vcpus
+    self.snapshots     = snapshots
+    self.snapshots_num = snapshots_num
+
+  def strigify_snapshots(self):
+    snapshots_str = ""
+    if len(self.snapshots) == 0:
+      return "<p>None</p>"
+    for snapshot in self.snapshots:
+      if snapshot.is_current:
+        snapshots_str += f"""<p><span style="color: rgb(0,250,0);">{snapshot.name}</span></p>"""
+      else:
+        snapshots_str += f"""<p><span style="color: rgb(250,0,0);">{snapshot.name}</span></p>"""
+    return snapshots_str
+
+class Snapshot:
+  def __init__(self, name, is_current):
+    self.name       = name
+    self.is_current = is_current
+
+class Nic:
+  def __init__(self, name, mac, is_active):
+    self.name      = name
+    self.mac       = mac
+    self.is_active = is_active
+
+def get_domain_state(domain_state):
+  return domain_states[domain_state]
+
+def get_pool_state(pool_state):
+  return pool_states[pool_state]
+
+def calculate_byte_units(byte_count):
+  if byte_count >= 1_073_741_824:
+    gigabyte_count = byte_count / 1_073_741_824
+    return f"{gigabyte_count:.2f} GiB"
+
+  if byte_count >= 1_048_576:
+    gigabyte_count = byte_count / 1_048_576
+    return f"{gigabyte_count:.2f} MiB"
+
+def extract_pool_volumes(volumes):
+  volumes_data = []
+  for volume in volumes:
+    info = volume.info()
+    volumes_data.append(
+      Volume(
+        name       = volume.name(),
+        key        = volume.key(),
+        path       = volume.path(),
+        vol_type   = info[0], 
+        capacity   = calculate_byte_units(info[1]),
+        allocation = calculate_byte_units(info[2]),
+      ))
+  return volumes_data
+
+def extract_hypervisor_pools(pools):
+  pools_data = []
+  for pool in pools:
+    info = pool.info()
+    pools_data.append(
+      Pool(
+        name           = pool.name(),
+        uuid           = pool.UUIDString(),
+        is_active      = pool.isActive() == 1,
+        is_persistent  = pool.isPersistent() == 1,
+        state          = get_pool_state(info[0]),
+        capacity       = calculate_byte_units(info[1]),
+        allocation     = calculate_byte_units(info[2]),
+        availability   = calculate_byte_units(info[3]),
+        num_of_volumes = pool.numOfVolumes(),
+        volumes        = extract_pool_volumes(pool.listAllVolumes())
+      ))
+  return pools_data
+
+def extract_domain_snapshots(snapshots):
+  snapshots_data = []
+  for snapshot in snapshots:
+    snapshots_data.append(
+      Snapshot(
+        name       = snapshot.getName(),
+        is_current = snapshot.isCurrent() == 1
+      ))
+  return snapshots_data
+
+def extract_hypervisor_domains(domains):
+  domains_data = []
+  for domain in domains:
+    info = domain.info()
+    domains_data.append(
+      Domain(
+        name          = domain.name(),
+        domain_id     = domain.ID(),
+        uuid          = domain.UUIDString(),
+        is_active     = domain.isActive() == 1,
+        is_persistent = domain.isPersistent() == 1,
+        state         = get_domain_state(info[0]),
+        max_mem       = calculate_byte_units(domain.maxMemory()),
+        vcpus         = info[3], 
+        snapshots     = extract_domain_snapshots(domain.listAllSnapshots()),
+        snapshots_num = domain.snapshotNum()
+      ))
+  return domains_data
+
+def extract_hypervisor_nics(nics):
+  nics_data = []
+  for nic in nics:
+    nics_data.append(
+      Nic(
+        name      = nic.name(),
+        mac       = nic.MACString(),
+        is_active = nic.isActive() == 1
+      ))
+  return nics_data
+
+def beautify_data():
+  hv_formatted_data = ""
+  hv_data = ""
+  vms_list = ""
+
+  for hypervisor in hypervisors_data:
+    nics_table = {
+      "title": "",
+      "beginning": """
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>MAC</th>
+              <th>Is Active</th>
+            </tr>
+          </thead>
+      """,
+      "middle": "",
+      "ending": "</table>"
+    }
+  
+    pools_table = {
+      "title": "",
+      "beginning": """
+        <table style="table-layout:fixed;">
+          <thead>
+            <tr>
+              <th sort="ascending">Name</th>
+              <th>UUID</th>
+              <th>Active</th>
+              <th>Persistent</th>
+              <th>State</th>
+              <th>Capacity</th>
+              <th>Allocation</th>
+              <th>Availability</th>
+              <th>Volumes Count</th>
+            </tr>
+          </thead>
+      """,
+      "middle": "",
+      "ending": "</table>"
+    }
+  
+    domains_table = {
+      "title": "",
+      "beginning": """
+        <table style="table-layout:fixed;">
+          <thead>
+            <tr>
+              <th sort="ascending">Name</th>
+              <th>ID</th>
+              <th>UUID</th>
+              <th>Is Active</th>
+              <th>Is Persistent</th>
+              <th>State</th>
+              <th>Max Mem</th>
+              <th>Vcpus</th>
+              <th>Snapshots #</th>
+              <th>Snapshots</th>
+            </tr>
+          </thead>
+      """,
+      "middle": "",
+      "ending": "</table>"
+    }
+
+    hv_data += f"""<a href="#{hypervisor.name}-Domains">{hypervisor.name}</a><br />"""
+    vms_list += f"""<a href="#{hypervisor.name}-Domains">{hypervisor.name}</a></br>"""
+
+    for pool in hypervisor.pools:
+      pools_table['middle'] += f"""
+        <tr>
+          <td>{pool.name}</td>
+          <td>{pool.uuid}</td>
+          <td>{pool.is_active}</td>
+          <td>{pool.is_persistent}</td>
+          <td>{pool.state}</td>
+          <td>{pool.capacity}</td>
+          <td>{pool.allocation}</td>
+          <td>{pool.availability}</td>
+          <td>{pool.num_of_volumes}</td>
+        </tr>
+      """
+
+    for nic in hypervisor.nics:
+      nics_table['middle'] += f"""
+        <tr>
+          <td>{nic.name}</td>
+          <td>{nic.mac}</td>
+          <td>{nic.is_active}</td>
+        </tr>
+      """
+
+    for domain in hypervisor.domains:
+      vms_list += f"""<a href="{domain.name}">{domain.name}</a>"""
+      domains_table['middle'] += f"""
+        <tr>
+          <td>{domain.name}</td>
+          <td>{domain.domain_id}</td>
+          <td>{domain.uuid}</td>
+          <td>{domain.is_active}</td>
+          <td>{domain.is_persistent}</td>
+          <td>{domain.state}</td>
+          <td>{domain.max_mem}</td>
+          <td>{domain.vcpus}</td>
+          <td>{domain.snapshots_num}</td>
+          <td>{domain.strigify_snapshots()}</td>
+        </tr>
+      """
+
+    nics_table['title'] = f"""<h3>{hypervisor.name} NICs</h3>"""
+    hv_formatted_data += nics_table['title']        +\
+                      nics_table['beginning']    +\
+                      nics_table['middle']       +\
+                      nics_table['ending']
+
+    pools_table['title'] = f"""<h3>{hypervisor.name} Pools</h3>"""
+    hv_formatted_data += pools_table['title']       +\
+                      pools_table['beginning']   +\
+                      pools_table['middle']      +\
+                      pools_table['ending']
+
+    domains_table['title'] = f"""<h3>{hypervisor.name} Domains</h3>"""
+    hv_formatted_data += domains_table['title']     +\
+                      domains_table['beginning'] +\
+                      domains_table['middle']    +\
+                      domains_table['ending']
+
+  hv_data += hv_formatted_data
+  return [hv_data, vms_list]
+
+def fetch_page_version(page_version):
+  page_version_res = requests.get(page_version, headers=headers)
+  page_version_obj = json.loads(page_version_res.text)
+  return page_version_obj['version']['number'] + 1
+
+def upload_data_to_confluence(api_url, page_id, beautified_data):
+    current_date = datetime.now()
+    api_request = {
+      "id":"{page_id}",
+      "type":"page",
+      "title":f"{site_name} ({current_date.now().strftime('%m/%d/%Y')})",
+      "metadata":{
+        "properties":{ 
+          "content-appearance-draft":{
+            "value":"full-width"
+          }, 
+          "content-appearance-published":{
+            "value": "full-width"
+          }
+        }
+      },
+      "body":{
+        "storage":{
+          "value":f"{beautified_data}",
+          "representation":"storage"
+        }
+      },
+      "version":{"number": fetch_page_version(page_id)}
+    }
+
+    requests.put(api_url, json=api_request, headers=headers)
+
+def gather_hypervisor_data():
+  for hypervisor in HYPERVISOR_HOSTNAMES:
+    try:
+      conn = libvirt.open(f"qemu+ssh://root@{hypervisor}:22/session")
+
+      pools   = conn.listAllStoragePools()
+      domains = conn.listAllDomains()
+      nics    = conn.listAllInterfaces()
+
+      hypervisors_data.append(
+        Hypervisor(
+          name    = hypervisor,
+          pools   = extract_hypervisor_pools(pools),
+          domains = extract_hypervisor_domains(domains),
+          nics    = extract_hypervisor_nics(nics)
+        ))
+
+      conn.close()
+    except libvirt.libvirtError as e:
+      pass
+
+def main():
+  gather_hypervisor_data()
+  beautified_data = beautify_data()
+  upload_data_to_confluence(site_hvs_api_url, vms_page_version, beautified_data[0])
+  upload_data_to_confluence(site_vms_api_url, hvs_page_version, beautified_data[1])
+
+main()

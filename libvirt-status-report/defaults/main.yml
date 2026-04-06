@@ -1,0 +1,12 @@
+---
+site_name: "HELLO"
+site_status_name: "{{ site_name }}"
+site_status_hvs_page_id: ""
+site_status_vms_page_id: ""
+confluence_api_url: ""
+confluence_authorization_token: ""
+
+cron_job_name: "Site Status"
+cron_job_weekday: "*"
+cron_job_hour: "18"
+cron_job_minute: "35"

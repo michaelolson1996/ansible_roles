@@ -1,0 +1,18 @@
+---
+
+- name: "Copy {{ site_name }} status script to remote machine"
+  template:
+    src: "willow.py.j2"
+    dest: "/usr/sbin/willow.py"
+    owner: "root"
+    group: "root"
+    mode: "0544"
+
+- name: "Establish cron"
+  cron:
+    name: "{{ cron_job_name }}"
+    job: "/usr/sbin/willow.py"
+    name: "{{ cron_job_name }}"
+    weekday: "{{ cron_job_weekday }}"
+    hour: "{{ cron_job_hour }}"
+    minute: "{{ cron_job_minute }}"
