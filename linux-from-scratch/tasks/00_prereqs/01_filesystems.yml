@@ -1,6 +1,6 @@
 ---
 
-- name: gather Linux from Scratch disk by id via cloud-init bootstrap
+- name: gather Linux from Scratch disk by id via ansible bootstrap
   ansible.builtin.find:
     paths: /dev/disk/by-id
     patterns: "*{{ ansible_local.bootstrap.lfs_disk }}"
